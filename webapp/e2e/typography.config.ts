@@ -32,10 +32,6 @@ export default defineConfig({
     name: 'web',
     command: `bun run dev --host 127.0.0.1 --port ${portPlan.webPort}`,
     cwd: frontendRoot,
-    env: {
-      ...process.env,
-      VITE_API_URL: portPlan.backendUrl,
-    },
     url: portPlan.webUrl,
     reuseExistingServer: false,
     timeout: 120_000,
