@@ -1,144 +1,44 @@
-import { describe, expect, test } from 'bun:test'
+import { expect, test } from 'bun:test'
+import { profileSchema } from './auth'
 
-import {
-  apiErrorSchema,
-  authResponseSchema,
-  loginRequestSchema,
-  logoutRequestSchema,
-  meResponseSchema,
-  refreshRequestSchema,
-  refreshResponseSchema,
-  registerRequestSchema,
-} from './index'
+const validId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
 
-const validUser = {
-  id: 'user_1',
-  email: 'user@example.com',
-  displayName: null,
-  createdAt: '2026-05-11T00:00:00.000Z',
-}
-
-describe('auth contracts', () => {
-  test('normalizes registration and login input', () => {
-    expect(
-      registerRequestSchema.parse({
-        email: ' USER@Example.COM ',
-        password: 'password123',
-        displayName: ' Jane ',
-      }),
-    ).toEqual({
-      email: 'user@example.com',
-      password: 'password123',
-      displayName: 'Jane',
-    })
-
-    expect(
-      registerRequestSchema.parse({
-        email: 'user@example.com',
-        password: 'password123',
-        displayName: '',
-      }),
-    ).toEqual({
-      email: 'user@example.com',
-      password: 'password123',
-      displayName: undefined,
-    })
-
-    expect(
-      loginRequestSchema.parse({
-        email: ' USER@Example.COM ',
-        password: 'password123',
-      }),
-    ).toEqual({
-      email: 'user@example.com',
-      password: 'password123',
-    })
+test('profileSchema accepts a valid profile row', () => {
+  const parsed = profileSchema.parse({
+    id: validId,
+    email: 'user@example.com',
+    displayName: 'Jane',
+    createdAt: '2026-06-15T00:00:00.000Z',
   })
+  expect(parsed.email).toBe('user@example.com')
+  expect(parsed.displayName).toBe('Jane')
+})
 
-  test('rejects invalid auth request payloads', () => {
-    expect(() =>
-      registerRequestSchema.parse({
-        email: 'not-an-email',
-        password: 'short',
-        displayName: 'A',
-      }),
-    ).toThrow()
-
-    expect(() =>
-      loginRequestSchema.parse({
-        email: 'user@example.com',
-        password: 'short',
-      }),
-    ).toThrow()
+test('profileSchema allows a null display name', () => {
+  const parsed = profileSchema.parse({
+    id: validId,
+    email: 'user@example.com',
+    displayName: null,
+    createdAt: '2026-06-15T00:00:00.000Z',
   })
+  expect(parsed.displayName).toBeNull()
+})
 
-  test('allows cookie-backed web refresh and explicit mobile refresh tokens', () => {
-    expect(refreshRequestSchema.parse(undefined)).toEqual({})
-    expect(refreshRequestSchema.parse({})).toEqual({})
-    expect(logoutRequestSchema.parse(undefined)).toEqual({})
-    expect(logoutRequestSchema.parse({})).toEqual({})
+test('profileSchema normalizes and rejects emails consistently', () => {
+  expect(
+    profileSchema.parse({
+      id: validId,
+      email: ' USER@Example.COM ',
+      displayName: null,
+      createdAt: '2026-06-15T00:00:00.000Z',
+    }).email,
+  ).toBe('user@example.com')
 
-    const refreshToken = 'r'.repeat(32)
-    expect(refreshRequestSchema.parse({ refreshToken })).toEqual({ refreshToken })
-    expect(logoutRequestSchema.parse({ refreshToken })).toEqual({ refreshToken })
-
-    expect(() => refreshRequestSchema.parse({ refreshToken: 'short' })).toThrow()
-    expect(() => logoutRequestSchema.parse({ refreshToken: 'short' })).toThrow()
+  const result = profileSchema.safeParse({
+    id: validId,
+    email: 'not-an-email',
+    displayName: null,
+    createdAt: '2026-06-15T00:00:00.000Z',
   })
-
-  test('validates auth response shapes for web and mobile clients', () => {
-    expect(
-      authResponseSchema.parse({
-        user: validUser,
-        accessToken: 'access-token',
-      }),
-    ).toEqual({
-      user: validUser,
-      accessToken: 'access-token',
-    })
-
-    expect(
-      authResponseSchema.parse({
-        user: validUser,
-        accessToken: 'access-token',
-        refreshToken: 'mobile-refresh-token',
-      }),
-    ).toEqual({
-      user: validUser,
-      accessToken: 'access-token',
-      refreshToken: 'mobile-refresh-token',
-    })
-
-    expect(refreshResponseSchema.parse({ accessToken: 'access-token' })).toEqual({
-      accessToken: 'access-token',
-    })
-    expect(meResponseSchema.parse({ user: validUser })).toEqual({ user: validUser })
-  })
-
-  test('validates stable API error response shape', () => {
-    expect(
-      apiErrorSchema.parse({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid request payload',
-          details: [{ path: ['email'], message: 'Invalid email address' }],
-        },
-      }),
-    ).toEqual({
-      error: {
-        code: 'VALIDATION_ERROR',
-        message: 'Invalid request payload',
-        details: [{ path: ['email'], message: 'Invalid email address' }],
-      },
-    })
-
-    expect(() =>
-      apiErrorSchema.parse({
-        error: {
-          code: 'SOMETHING_ELSE',
-          message: 'Nope',
-        },
-      }),
-    ).toThrow()
-  })
+  expect(result.success).toBe(false)
 })
