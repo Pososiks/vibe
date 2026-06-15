@@ -1,69 +1,80 @@
-import { spawnSync } from 'node:child_process'
-import {
-  composeEnv,
-  composeProjectName,
-  defaultDatabaseUrl,
-  repositoryRoot,
-} from './env'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { createClient } from '@supabase/supabase-js'
 
-const composeArgs = ['compose', '-p', composeProjectName]
+const e2eDir = fileURLToPath(new URL('.', import.meta.url))
+export const sessionFile = resolve(e2eDir, '.artifacts/e2e-session.json')
 
-function run(command: string, args: string[], env: NodeJS.ProcessEnv = process.env) {
-  const result = spawnSync(command, args, {
-    cwd: repositoryRoot,
-    env,
-    stdio: 'inherit',
-  })
-
-  if (result.status !== 0) {
-    throw new Error(`Command failed: ${command} ${args.join(' ')}`)
+function readEnvFile(): Record<string, string> {
+  const envPath = resolve(e2eDir, '../.env')
+  if (!existsSync(envPath)) return {}
+  const out: Record<string, string> = {}
+  for (const line of readFileSync(envPath, 'utf8').split('\n')) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/)
+    if (match) out[match[1]] = match[2].replace(/^["']|["']$/g, '')
   }
+  return out
 }
 
-async function waitForComposePostgres(service: string, database: string, env: NodeJS.ProcessEnv) {
-  for (let attempt = 1; attempt <= 30; attempt += 1) {
-    const result = spawnSync(
-      'docker',
-      [...composeArgs, 'exec', '-T', service, 'pg_isready', '-U', 'postgres', '-d', database],
-      {
-        cwd: repositoryRoot,
-        env,
-        stdio: 'ignore',
-      },
-    )
-
-    if (result.status === 0) {
-      return
-    }
-
-    await new Promise((resolveWait) => setTimeout(resolveWait, 1_000))
+export function resolveSupabaseEnv() {
+  const fileEnv = readEnvFile()
+  return {
+    supabaseUrl: process.env.VITE_SUPABASE_URL ?? fileEnv.VITE_SUPABASE_URL,
+    anonKey: process.env.VITE_SUPABASE_ANON_KEY ?? fileEnv.VITE_SUPABASE_ANON_KEY,
+    // Server-side only. Read from process.env or the gitignored webapp/.env.
+    // Never prefixed with VITE_, so Vite never ships it to the browser bundle.
+    serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY ?? fileEnv.SUPABASE_SERVICE_ROLE_KEY,
   }
-
-  throw new Error(`Timed out waiting for Docker Compose service "${service}"`)
 }
 
 export default async function globalSetup() {
-  const databaseUrl = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? defaultDatabaseUrl
-  const databaseName = new URL(databaseUrl).pathname.replace(/^\//, '')
+  // Start each run clean so a skipped seed never leaves a stale session behind.
+  rmSync(sessionFile, { force: true })
 
-  if (!databaseName.endsWith('_test') && process.env.E2E_ALLOW_NON_TEST_DATABASE !== '1') {
-    throw new Error(
-      `Refusing to run Playwright against non-test database "${databaseName}". Use a *_test database or set E2E_ALLOW_NON_TEST_DATABASE=1 intentionally.`,
+  const { supabaseUrl, anonKey, serviceRoleKey } = resolveSupabaseEnv()
+
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
+    console.warn(
+      '[e2e] SUPABASE_SERVICE_ROLE_KEY (or URL/anon) missing — skipping authenticated session seed. ' +
+        'The authenticated auth spec will be skipped; the unauthenticated spec still runs.',
     )
+    return
   }
 
-  process.env.TEST_DATABASE_URL = databaseUrl
-  process.env.DATABASE_URL = databaseUrl
-
-  const env = composeEnv({
-    DATABASE_URL: databaseUrl,
-    TEST_DATABASE_URL: databaseUrl,
+  const admin = createClient(supabaseUrl, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
   })
 
-  if (process.env.E2E_SKIP_DOCKER !== '1') {
-    run('docker', [...composeArgs, 'up', '-d', 'postgres_test'], env)
-    await waitForComposePostgres('postgres_test', 'web_app_demo_test', env)
+  const email = `e2e-${Date.now()}@example.com`
+  const password = 'e2e-password-123'
+  const displayName = 'Web E2E User'
+
+  const created = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: displayName },
+  })
+  if (created.error) throw created.error
+
+  const anon = createClient(supabaseUrl, anonKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  })
+  const signedIn = await anon.auth.signInWithPassword({ email, password })
+  if (signedIn.error || !signedIn.data.session) {
+    throw signedIn.error ?? new Error('E2E sign-in returned no session')
   }
 
-  run('bun', ['run', '--cwd', 'backend', 'prisma:deploy'], env)
+  mkdirSync(dirname(sessionFile), { recursive: true })
+  writeFileSync(
+    sessionFile,
+    JSON.stringify({
+      userId: created.data.user!.id,
+      email,
+      displayName,
+      session: signedIn.data.session,
+    }),
+    'utf8',
+  )
 }

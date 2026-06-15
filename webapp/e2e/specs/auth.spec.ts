@@ -1,70 +1,29 @@
-import { e2ePassword, expect, test, uniqueEmail } from '../helpers/test'
+import { expect, injectSession, readSeededSession, test } from '../helpers/test'
 
-test('registers, restores the session, opens protected UI, and logs out', async ({ page }) => {
-  const email = uniqueEmail()
-  const displayName = 'Web E2E User'
-
+test('unauthenticated visitor sees the Google sign-in card', async ({ page }) => {
   await page.goto('/')
+  await expect(page.getByRole('heading', { name: /sign in to open your account/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
+})
 
-  await expect(page.getByRole('heading', { name: /auth, validation/i })).toBeVisible()
-  await page.getByRole('button', { name: 'Create account' }).click()
-  await expect(page.getByText('Invalid email address')).toBeVisible()
-  await expect(page.getByText('Password must be at least 8 characters')).toBeVisible()
-
-  await page.getByLabel('Name').fill('A')
-  await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Password').fill(e2ePassword)
-  await page.getByRole('tab', { name: 'Login' }).click()
-  await expect(page.getByLabel('Name')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Login' })).toBeEnabled()
-
-  await page.getByRole('tab', { name: 'Register' }).click()
-  await page.getByLabel('Name').fill(displayName)
-  await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Password').fill(e2ePassword)
-  await page.getByRole('button', { name: 'Create account' }).click()
-
-  await expect(page.getByRole('heading', { name: 'Session is active' })).toBeVisible()
-  await expect(page.getByText(email)).toBeVisible()
-  await expect
-    .poll(async () =>
-      (await page.context().cookies()).some(
-        (cookie) => cookie.name === 'web_app_demo_refresh' && cookie.httpOnly,
-      ),
-    )
-    .toBe(true)
-
-  const refreshAfterReload = page.waitForResponse(
-    (response) =>
-      response.url().endsWith('/api/auth/refresh') && response.request().method() === 'POST',
-  )
-  const meAfterReload = page.waitForResponse(
-    (response) => response.url().endsWith('/api/auth/me') && response.request().method() === 'GET',
+test('an authenticated session lands straight in the app and signs out', async ({ page }) => {
+  const seeded = readSeededSession()
+  test.skip(
+    seeded === null,
+    'No seeded Supabase session (set SUPABASE_SERVICE_ROLE_KEY to run the authenticated flow).',
   )
 
+  await injectSession(page, seeded!)
+
+  // Signed-in users land directly on the account view — no intermediate screen.
+  await page.goto('/')
+  await expect(page.getByRole('heading', { name: seeded!.displayName })).toBeVisible()
+  await expect(page.getByText(seeded!.email)).toBeVisible()
+
+  // Session survives a reload (supabase-js reads it back from localStorage).
   await page.reload()
-
-  await expect((await refreshAfterReload).status()).toBe(200)
-  await expect((await meAfterReload).status()).toBe(200)
-  await expect(page.getByRole('heading', { name: 'Session is active' })).toBeVisible()
-
-  await page.getByRole('link', { name: 'Open app' }).click()
-  await expect(page.getByRole('heading', { name: displayName })).toBeVisible()
-  await expect(page.getByText(email)).toBeVisible()
+  await expect(page.getByRole('heading', { name: seeded!.displayName })).toBeVisible()
 
   await page.getByRole('button', { name: 'Logout' }).click()
-  await expect(page.getByRole('heading', { name: 'Login required' })).toBeVisible()
-
-  await page.getByRole('link', { name: 'Go to auth' }).click()
-  await expect(page.getByRole('button', { name: 'Create account' })).toBeVisible()
-
-  await page.getByRole('tab', { name: 'Login' }).click()
-  await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Password').fill('wrong-password')
-  await page.getByRole('button', { name: 'Login' }).click()
-  await expect(page.getByText('Invalid email or password')).toBeVisible()
-
-  await page.getByLabel('Password').fill(e2ePassword)
-  await page.getByRole('button', { name: 'Login' }).click()
-  await expect(page.getByRole('heading', { name: 'Session is active' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue with Google' })).toBeVisible()
 })

@@ -1,18 +1,17 @@
-import { spawnSync } from 'node:child_process'
-import { composeEnv, composeProjectName, repositoryRoot } from './env'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { createClient } from '@supabase/supabase-js'
+import { resolveSupabaseEnv, sessionFile } from './global-setup'
 
-export default function globalTeardown() {
-  if (process.env.E2E_SKIP_DOCKER === '1' || process.env.E2E_KEEP_DOCKER === '1') {
-    return
+export default async function globalTeardown() {
+  if (!existsSync(sessionFile)) return
+  const { userId } = JSON.parse(readFileSync(sessionFile, 'utf8')) as { userId: string }
+
+  const { supabaseUrl, serviceRoleKey } = resolveSupabaseEnv()
+  if (supabaseUrl && serviceRoleKey) {
+    const admin = createClient(supabaseUrl, serviceRoleKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+    await admin.auth.admin.deleteUser(userId).catch(() => undefined)
   }
-
-  const result = spawnSync('docker', ['compose', '-p', composeProjectName, 'down', '-v'], {
-    cwd: repositoryRoot,
-    env: composeEnv(),
-    stdio: 'inherit',
-  })
-
-  if (result.status !== 0) {
-    throw new Error(`Command failed: docker compose -p ${composeProjectName} down -v`)
-  }
+  rmSync(sessionFile, { force: true })
 }
