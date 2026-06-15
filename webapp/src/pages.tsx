@@ -1,6 +1,7 @@
 import { Link, Outlet } from '@tanstack/react-router'
 
 import { GoogleSignInCard } from '@/components/GoogleSignInCard'
+import { SubscriptionCard } from '@/components/SubscriptionCard'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -83,6 +84,7 @@ export function HomePage() {
       <Separator />
 
       <div className="grid gap-4 sm:grid-cols-2">
+        <SubscriptionCard userId={auth.user.id} />
         <Card size="sm">
           <CardHeader>
             <CardTitle>User ID</CardTitle>
