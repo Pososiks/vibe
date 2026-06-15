@@ -1,122 +1,89 @@
 # Architecture
 
-This repository defines a golden path for web and backend products: shared contracts, one backend, one CSR browser app (`webapp`), one Astro SSG/SSR site (`website`), and little custom infrastructure. The runnable mobile app lives on the `mobile` branch and extends this architecture only when mobile is active.
+This repository is a Supabase-native template: there is no application server. The browser talks directly to Supabase for auth and data, and only privileged payment logic runs in Supabase Edge Functions. The surfaces are shared contracts, one CSR browser app (`webapp`), one Astro public site (`website`), and the Supabase project (Postgres + Auth + Edge Functions). The runnable mobile app lives on the `mobile` branch and extends this architecture only when mobile is active.
+
+## Surfaces
+
+- `webapp` — React 19 + Vite CSR app behind Google sign-in. Owns the authenticated experience: the account/subscription area. Uses TanStack Router for routing and TanStack Query for server state. Talks to Supabase through `@supabase/supabase-js`.
+- `website` — Astro public site (static by default, SSR per route). Owns everything that must be public and search-indexable: landing and marketing content.
+- `packages/contracts` — shared Zod schemas used by both frontends.
+- `supabase/migrations/` — declarative SQL for the `profiles` and `subscriptions` tables, RLS policies, and the signup trigger.
+- `supabase/functions/` — Deno Edge Functions for the payment flow.
+
+The decision rule for putting a page in `webapp` vs `website` is in the root [README.md](../README.md) under "Choosing `webapp` vs `website`".
+
+## Data Flow
+
+There are two paths, and neither goes through a custom backend.
+
+### Reads and writes: Browser → Supabase
+
+```text
+Browser → @supabase/supabase-js → Supabase Auth (Google OAuth)
+                                 → Postgres (RLS-guarded)
+```
+
+The webapp authenticates with Supabase Auth and then reads/writes Postgres directly through the Supabase client. There is no API tier to forward requests. Authorization is enforced entirely by Row Level Security in the database (see [Authorization](#authorization-rls-is-the-boundary)). The Supabase URL and anon key are public, browser-shipped values; safety comes from RLS, not from hiding the key.
+
+### Payments: Browser → Edge Function, and creem → webhook
+
+```text
+Browser → creem-checkout (Edge Function, authenticated)  → creem.io checkout session
+creem.io → creem-webhook (Edge Function, public)         → subscriptions table (service-role write)
+```
+
+- `creem-checkout` runs on the user's Supabase session. It verifies the caller's JWT, then creates a creem.io checkout session for that user and returns the redirect URL. It exists as a function (not a direct browser call) because it needs the creem secret API key, which must never reach the browser.
+- `creem-webhook` is a public endpoint that creem.io calls on subscription events. It verifies the `creem-signature` HMAC header against the webhook secret, rejects anything that does not match, and then upserts the `subscriptions` row using the Supabase service-role key (which bypasses RLS). It is public because creem calls it server-to-server; the HMAC signature is the trust boundary, not a Supabase session.
+
+Shared helpers for signature verification and event→row mapping live in `supabase/functions/_shared/creem.ts`.
 
 ## Contracts
 
-`packages/contracts` is the source of truth for API payloads, DTOs, and error shapes. New endpoints should start with Zod schemas in contracts. The backend then uses those schemas for request validation, while the webapp uses them in TanStack Form and API clients.
+`packages/contracts` is the source of truth for shared payload and error shapes. It currently exports:
 
-Do not hand-copy API shapes into clients. When a contract changes, validate producer and consumers in one pass: backend route/service and webapp API client/form. On the `mobile` branch, include the mobile API client/form in that same pass.
+- `profileSchema` — the shape of a user profile row (`id`, `email`, `displayName`, `createdAt`).
+- `apiErrorSchema` / `apiErrorCodeSchema` — the canonical error envelope used across surfaces.
 
-## Backend
+New shared shapes should start as Zod schemas in contracts; the webapp imports them rather than hand-copying the shape. When a contract changes, validate every consumer in one pass: the webapp client/UI and any Edge Function that produces or consumes the shape. On the `mobile` branch, include the mobile client in that pass.
 
-Backend API code follows this flow:
+## Authorization: RLS Is The Boundary
 
-```text
-Hono route -> Zod validation -> auth/session guard -> feature service -> Prisma -> DTO
-```
+Because the browser talks to Postgres directly, RLS is the authorization layer — there is no server-side guard in front of the database to fall back on.
 
-- `src/index.ts` is the API runtime entrypoint.
-- `src/worker.ts` is the long-running worker entrypoint. Keep it disabled in deployment specs until a real background handler is registered.
-- `src/cron.ts` is the one-shot scheduled-job entrypoint. Add concrete tasks to its registry and deploy scheduled jobs only for named product tasks.
-- `src/runtime.ts` owns shared env loading, Prisma creation, and runtime cleanup for all backend entrypoints.
-- `src/app.ts` owns the Hono app, CORS, secure headers, error handling, route mounting, and OpenAPI output.
-- `src/env.ts` validates environment variables with Zod.
-- `src/db.ts` creates the Prisma client.
-- `src/auth/*` owns the auth feature: routes, service logic, JWT helpers, password hashing, and refresh-token hashing.
+- Auth is Google OAuth only, through Supabase Auth. There is no email/password and no custom JWT auth.
+- A signup trigger auto-creates the matching `profiles` row when a new auth user is created, so the app never has to insert profiles from the client.
+- RLS policies on `profiles` are owner-only: a user can read only their own row. `subscriptions` rows are likewise readable only by their owner.
+- Writes to `subscriptions` come only from the webhook using the service-role key, which bypasses RLS. The browser never writes `subscriptions` directly.
 
-Routes should stay thin. Do not put business logic into Hono handlers, UI clients, or child components when the decision belongs in a backend service.
+Treat any new table the same way: add it as a migration, enable RLS, and write owner-scoped policies before any client reads it. The migration `0002_harden_functions.sql` exists to keep database functions safe (fixed `search_path`); follow that pattern for new functions.
 
-## Runtime Shape And Real-Time
+## Real-Time
 
-The default runtime shape is a modular monolith: one backend codebase, one database, shared contracts, and clear feature boundaries inside the repository. The backend can expose separate API, worker, and cron entrypoints while still sharing Prisma schema, env validation, services, and contracts. Do not add queues, brokers, or extra infrastructure until the product has a concrete need that the monolith cannot meet clearly.
+If a future feature needs live updates (presence, notifications, collaboration), use Supabase Realtime (Postgres changes / broadcast / presence) rather than introducing a separate backend or a broker. There is no application server in this template, so the obsolete pattern of a Redis/Valkey Pub/Sub bus between backend instances does not apply here.
 
-On the default DigitalOcean production path, run the backend/API as one `apps-s-1vcpu-1gb` App Platform container so the starting infrastructure stays inside the low-cost budget when paired with the smallest production Managed PostgreSQL cluster. Add App Platform worker or scheduled-job components from the same `backend/Dockerfile` only when the product has a concrete background or periodic task. `webapp` and `website` remain App Platform Static Site components and do not have runtime container sizes, until a `website` route opts into SSR and is deployed as a service.
+## Deployment Topology
 
-For real-time features such as chat, presence, collaboration, live notifications, or activity feeds, start with the same backend service. A single instance can keep an in-memory registry of its own WebSocket connections. Once the backend runs multiple instances, in-memory fanout is no longer enough: one user may be connected to instance A while another is connected to instance B. At that point, add a managed Redis-compatible Pub/Sub broker between backend instances so each instance can publish domain events and subscribe to events it must deliver to its local sockets.
+Hosting is Vercel. `webapp` and `website` deploy as two separate Vercel projects from this repository.
 
-On the default DigitalOcean path, use DigitalOcean Managed Valkey for this broker. On the optional Yandex Cloud path, use Yandex Managed Service for Valkey. Add this infrastructure only when horizontal scaling and cross-instance WebSocket/SSE delivery are actually required; it is not part of the baseline local setup.
+- Build-time env for `webapp`: `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Both are public, browser-shipped values.
+- The Supabase project (Postgres, Auth, Edge Functions) is the single backing service. Migrations under `supabase/migrations/` and functions under `supabase/functions/` are deployed to Supabase, not to Vercel.
+- Edge Function secrets (creem API key, webhook secret, service-role key) live in the Supabase function environment and never appear in any frontend build.
 
-Valkey Pub/Sub is only a fanout mechanism. Keep durable chat messages, notifications, collaboration state, and audit-relevant events in PostgreSQL; publish compact event identifiers after commits; and make clients recover by reconnecting and refetching from the API after missed realtime messages.
-
-## Auth
-
-Auth v1 is custom JWT-based auth:
-
-- Passwords use `Bun.password.hash/verify` with Argon2id.
-- Access tokens are short-lived JWTs signed and verified with `jose`.
-- Refresh tokens are opaque random tokens; only their SHA-256 hash is stored in PostgreSQL.
-- The webapp keeps the refresh token in an HttpOnly cookie and keeps the access token in memory. Local HTTP uses `SameSite=Lax`; HTTPS production uses `Secure` and `SameSite=None` so browser auth works across separate webapp/API origins.
-The `mobile` branch adds native token storage for Expo.
-
-Refresh-token rotation creates a new session and revokes the previous one. `/api/auth/me` checks both the JWT and the active database session.
-
-## Frontend
-
-There are two browser surfaces, split by whether the pages need SEO. `website` (Astro, SSG by default, SSR per route) owns everything that must be public and search-indexable or share with rich previews: landing, marketing, content, and the public side of a storefront or marketplace. `webapp` (React CSR) owns everything that lives behind sign-in and needs no SEO: dashboards, account areas, authenticated tools. A marketplace typically uses both — public catalog in `website`, authenticated app in `webapp` — sharing `@web-app-demo/contracts`. The decision rule the installing agent should apply is in the root [README.md](../README.md) under "Choosing `webapp` vs `website`".
-
-The webapp follows these client rules:
-
-- TanStack Query owns server state.
-- TanStack Form owns form state.
-- Zod schemas come from `@web-app-demo/contracts`.
-- The API client centralizes base URL handling, auth headers, refresh/retry behavior, and error shape parsing.
-
-Do not create a new form, query, auth, or API abstraction until the existing pattern stops solving the current problem.
-
-`website` is a separate Astro workspace for public SSG/SSR pages (landing, content sites, marketplace). Pages prerender to static HTML by default; a route opts into SSR with `export const prerender = false` (Node adapter at runtime). It does not own the auth flow and should not duplicate the CSR client from `webapp`. If the website starts reading API data or shared DTOs, connect `@web-app-demo/contracts` and validate producer/consumer sides the same way as `webapp`.
-
-## Testing
-
-Backend unit/integration tests verify contracts and auth behavior at the owning layer. Webapp E2E uses Playwright and starts a real backend + Vite through `webServer`. Mobile E2E lives on the `mobile` branch.
-
-Client E2E in this template is a happy-path smoke layer, not the place for large validation matrices. Keep negative payloads, password/JWT/session rules, and error-shape checks in backend tests. Add fast client-level tests for form validation and API state edge cases when those surfaces grow.
-
-## Prisma
-
-Do not hand-write Prisma migration SQL. Change `backend/prisma/schema.prisma`, then use:
-
-```bash
-bun run --cwd backend prisma:migrate
-
-The template uses database-generated UUIDv7 primary keys (`@default(dbgenerated("uuidv7()")) @db.Uuid`) instead of ORM-generated `cuid()`/`uuid()`. That keeps ID generation consistent for Prisma Client, direct SQL, imports, and any future background workers or non-Prisma writers, but it also means the schema requires PostgreSQL 18+.
-
-Treat UUIDv7 as a repository-level rule, not a one-off model detail. New primary keys should use database-generated UUIDv7, and foreign keys that reference those IDs should use `@db.Uuid` so the type stays native all the way through PostgreSQL and Prisma.
-```
-
-For production, apply already-created migrations:
-
-```bash
-bun run --cwd backend prisma:deploy
-```
-
-## Local Infrastructure
-
-Local PostgreSQL is provided by Docker Compose, not by a native database install. The development service uses `postgres:18-alpine`, exposes `web_app_demo` on host port `54329`, and stores data in the `postgres_18_data` volume. The test service uses the same image with database `web_app_demo_test`; automated runners set `POSTGRES_TEST_PORT` to a repository-derived port when they need isolation. PostgreSQL 18 is intentional here because the backend schema relies on the native `uuidv7()` database function.
-
-Keep `docker-compose.yml`, `backend/.env.example`, `.env.example`, and [LOCAL_DATABASE.md](LOCAL_DATABASE.md) aligned when changing local database names, ports, credentials, image tags, or volume paths.
-
-## Storage
-
-Persistent files and media belong in DigitalOcean Spaces, not in the App Platform container filesystem. The backend owns storage access through `src/storage`, including safe object keys, presigned uploads/downloads, public CDN URL construction, and object deletion. Product features that use uploads should store ownership and retention metadata in PostgreSQL when permissions, deletion, audit, or private access matter.
-
-For image optimization, generate app-owned variants in the backend, a worker, or a dedicated App Platform service, then store those variants in Spaces and serve public variants through Spaces CDN. DigitalOcean Spaces and Spaces CDN do not provide first-party dynamic image resizing or format transformation.
+Use placeholders for the Supabase project ref, keys, and creem credentials in this template; fill them per install.
 
 ## Current Upstream Documentation
 
 For framework and API questions, consult the current upstream documentation linked here first. This document describes repository conventions; upstream docs are authoritative for tool behavior.
 
-- [Bun docs](https://bun.sh/docs)
-- [Hono docs](https://hono.dev/docs)
-- [Hono Zod OpenAPI example](https://hono.dev/examples/zod-openapi)
-- [Prisma docs](https://www.prisma.io/docs)
-- [PostgreSQL docs](https://www.postgresql.org/docs/)
-- [PostgreSQL Docker Official Image](https://hub.docker.com/_/postgres)
-- [DigitalOcean Spaces docs](https://docs.digitalocean.com/products/spaces/)
-- [DigitalOcean Valkey docs](https://docs.digitalocean.com/products/databases/valkey/)
-- [Yandex Managed Service for Valkey docs](https://yandex.cloud/en/docs/managed-redis/)
+- [Supabase docs](https://supabase.com/docs)
+- [Supabase Auth (Google OAuth)](https://supabase.com/docs/guides/auth/social-login/auth-google)
+- [Supabase Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
+- [Supabase Edge Functions](https://supabase.com/docs/guides/functions)
+- [Supabase Realtime](https://supabase.com/docs/guides/realtime)
+- [supabase-js client](https://supabase.com/docs/reference/javascript/introduction)
+- [creem.io docs](https://docs.creem.io/)
+- [Vercel docs](https://vercel.com/docs)
+- [Astro docs](https://docs.astro.build/)
 - [Zod docs](https://zod.dev/)
-- [jose documentation](https://github.com/panva/jose)
 - [TanStack Query React docs](https://tanstack.com/query/latest/docs/framework/react/overview)
-- [TanStack Form React docs](https://tanstack.com/form/latest/docs/framework/react/quick-start)
 - [TanStack Router docs](https://tanstack.com/router/latest/docs/overview)

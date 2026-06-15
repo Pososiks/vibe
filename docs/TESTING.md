@@ -1,93 +1,79 @@
 # Testing
 
-The goal of this template's tests is to show future agents where behavior should be verified and how to keep E2E broad enough to protect valuable behavior without turning it into exhaustive matrices.
+The goal of this template's tests is to show future agents where behavior should be verified in a Supabase-native app with no application server. There is no backend tier and no local Postgres container to test against; verification happens at the shared schema, the webapp, the Edge Functions, and one end-to-end browser flow that runs against a real Supabase project.
 
-## Pyramid
+## Layers
 
-- Contracts/unit: shared Zod schema matrices, env parsing, JWTs, password hashing, client API refresh/retry behavior, and token cleanup.
-- Backend integration: refresh-token rotation, auth guards, duplicate registration, concurrency, and stable error shapes through real routes and PostgreSQL.
-- Webapp Playwright: valuable browser flows through a real backend and Vite UI.
-- Mobile Maestro: lives on the `mobile` branch with the runnable Expo app.
-
-Client E2E should cover valuable user journeys, including non-happy-path states that protect real product behavior, when they can stay stable. Important edge cases must be covered at some automated level; choosing integration, contract, or unit coverage instead of E2E is not permission to skip them. Negative validation matrices, combinatorial edge cases, concurrency, and pure rules belong in unit/integration tests.
+- **Contract/unit (Zod):** shared schema matrices in `packages/contracts` — profile shape and the API error envelope.
+- **Webapp unit:** pure UI rules and policies that would be brittle or expensive in E2E (for example the typography policy/render tests in `webapp/tests`).
+- **Edge Function unit (Deno):** privileged payment logic — webhook signature verification and event→row mapping in `supabase/functions/creem-webhook/creem-webhook.test.ts`.
+- **Webapp E2E (Playwright):** the valuable browser journeys against a real Supabase project, including the authenticated subscription flow.
+- **Mobile (Maestro):** lives on the `mobile` branch with the runnable Expo app.
 
 ## Choosing Test Level
 
 Default to the highest useful behavioral boundary:
 
-- Use E2E when the risk is user-visible and crosses client/backend boundaries: critical journeys, auth/session restore, persistence, navigation, high-risk regressions, and important empty/error states.
-- Use backend integration for API/auth/persistence/contracts, stable error shapes, validation behavior, concurrency, and database-backed domain rules.
-- Use contract/unit tests selectively for shared schema matrices, pure rules with many branches, env parsing, security/token helpers, password hashing, and client retry/cache/token cleanup behavior that would be brittle or expensive in E2E.
+- Use E2E when the risk is user-visible and crosses the browser/Supabase boundary: sign-in, session restore, the authenticated area, navigation, and important empty/error states.
+- Use Edge Function unit tests for the payment-critical logic that never runs in the browser: HMAC signature acceptance/rejection and webhook event mapping. These are pure, fast, and security-relevant, so they belong below E2E.
+- Use contract/unit tests for shared schema matrices and pure UI rules with many branches.
 
-For TDD-first work, list the expected behavior and important edge cases before implementation, then write the first failing test at the boundary that best catches the regression. Important edge cases include validation boundaries, permission failures, expired sessions, empty data, duplicate or conflicting writes, retry/recovery paths, and persistence after refresh or restart.
+Keep authorization correctness (owner-only reads) anchored in RLS policies in `supabase/migrations/`; E2E exercises the user-visible result of those policies rather than re-testing every branch.
 
-Do not add E2E coverage just because a branch exists. Add it when it prevents a plausible product regression and can stay stable through explicit setup, stable selectors/test IDs, isolated test data, and deterministic assertions. Do not skip important edge cases just because they are not E2E-worthy; cover them through integration, contract, or unit tests. Keep exhaustive validation matrices and combinatorial edge cases out of E2E.
+For TDD-first work, list the expected behavior and important edge cases before implementing, then write the first failing test at the boundary that best catches the regression. Important edge cases include schema validation boundaries, rejected/invalid webhook signatures, unmapped event types, unauthenticated access, empty data, and session restore after reload.
 
-## Backend
+## Running Tests
+
+All commands run from the repository root.
 
 ```bash
-docker compose version
-docker info
-docker compose up -d postgres
-cp backend/.env.example backend/.env
-bun run test
-bun run test:contracts
-bun run test:backend
-bun run test:backend:integration
-bun run test:webapp
-bun run --cwd backend prisma:validate
-bun run smoke:backend:docker
+bun run typecheck        # typecheck every workspace
+bun run test             # contracts + webapp unit tests
+bun run test:contracts   # packages/contracts Zod schema tests
+bun run test:webapp      # webapp unit tests
+bun run e2e:webapp       # webapp Playwright E2E (needs a Supabase project)
 ```
 
-Contract tests live in `packages/contracts/src/*.test.ts` and protect shared request/response/error schemas used by backend and webapp. Webapp unit tests live in `webapp/tests` and cover API refresh/retry behavior that would be too expensive and brittle to fully exercise in E2E. The `mobile` branch extends this same contract/testing model for Expo.
+Edge Function tests run with Deno, since the functions are Deno modules:
 
-Backend tests live next to backend code and verify auth behavior through services and routes. The integration runner starts `postgres_test`, applies migrations, and runs register/login/refresh/logout/guard/error-shape scenarios. By default, the test database port is derived from the absolute repository path so parallel checkouts do not collide, and `TEST_DATABASE_URL` is derived from that port. Set `POSTGRES_TEST_PORT` and `TEST_DATABASE_URL` only when a fixed test database is required. Local database startup, credentials, and reset behavior are documented in [LOCAL_DATABASE.md](LOCAL_DATABASE.md).
+```bash
+deno test supabase/functions/creem-webhook/creem-webhook.test.ts
+# or the whole functions tree:
+deno test supabase/functions/
+```
 
-The integration and Docker smoke runners refuse database names that do not end with `_test` unless an override is set intentionally. This protects `web_app_demo` development data from test writes.
-
-The Docker smoke test builds the backend image, starts it against `postgres_test`, waits for `/health`, and removes only the smoke container it created.
-
-`.github/workflows/ci.yml` runs typecheck, contract tests, webapp client tests, backend tests, and the webapp Playwright smoke flow on pushes to `main` and pull requests.
+Contract tests live in `packages/contracts/src/*.test.ts` and protect the shared schemas used by the webapp (and the `mobile` branch). Webapp unit tests live in `webapp/tests`. The `mobile` branch extends this same contract/testing model for Expo.
 
 ## Webapp E2E
 
-Playwright is configured in `webapp/playwright.config.ts`.
+Playwright is configured in `webapp/playwright.config.ts`. It starts Vite through `webServer`; Vite reads `webapp/.env` for `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. There is no Docker, no local Postgres, and no test-database machinery — the E2E flow runs against a real Supabase project.
 
 First-time setup:
 
 ```bash
-docker compose version
-docker info
-cp backend/.env.example backend/.env
-bun run --cwd webapp e2e:install
+bun run --cwd webapp e2e:install   # install Playwright browsers
 bun run e2e:webapp
 ```
 
-If `docker compose version` or `docker info` fails, install/start Docker first by following [LOCAL_DATABASE.md](LOCAL_DATABASE.md). Do not replace this with native PostgreSQL for new users.
-
-The webapp E2E flow:
-
-- starts `docker compose up -d postgres_test` unless `E2E_SKIP_DOCKER=1` is set;
-- chooses repository-derived ports by default, and automatically moves to the nearest free ports if those are already occupied;
-- generates the Prisma client and applies migrations;
-- uses `TEST_DATABASE_URL` as the primary database URL, then passes that value to the backend as `DATABASE_URL` inside the test run;
-- starts the backend on `E2E_BACKEND_PORT`, which defaults to a repository-derived port;
-- starts Vite on `E2E_WEB_PORT`, which defaults to a repository-derived port;
-- stops its `postgres_test` compose project and removes the test volume after the run unless `E2E_KEEP_DOCKER=1` is set;
-- runs the auth smoke path: client validation visibility -> register/login mode switching -> register -> cookie refresh after reload -> protected route -> logout -> invalid login error -> successful login.
-
-Useful env:
+### Environment
 
 ```bash
-TEST_DATABASE_URL="postgresql://superuser:superpassword@localhost:<test-port>/web_app_demo_test?schema=public"
-POSTGRES_TEST_PORT=<test-port>
-E2E_BACKEND_PORT=<backend-port>
-E2E_WEB_PORT=<web-port>
-E2E_SKIP_DOCKER=1
-E2E_KEEP_DOCKER=1
+VITE_SUPABASE_URL=<your-supabase-project-url>
+VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<your-supabase-service-role-key>   # server-side only, for seeding
+E2E_WEB_PORT=<web-port>                                       # optional, defaults to 4173
 ```
 
-By default, Playwright computes `POSTGRES_TEST_PORT` from the absolute repository path and refuses to run against a database that does not use the `_test` suffix. This prevents E2E from accidentally writing to development or production data. Use `DATABASE_URL` only as a low-level override; `TEST_DATABASE_URL` is the documented test entry point.
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` are the public, browser-shipped values the app uses. `SUPABASE_SERVICE_ROLE_KEY` is server-side only: it is read from `process.env` or the gitignored `webapp/.env`, is never prefixed with `VITE_`, and is never shipped to the browser bundle. The global setup uses it to seed the authenticated flow.
+
+### How the flow works
+
+`webapp/e2e/global-setup.ts` resolves the Supabase env (from `process.env` or `webapp/.env`) and then:
+
+- If `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are all present, it creates a throwaway confirmed user with the service-role admin client, signs that user in with the anon client, and writes the session to `e2e/.artifacts/e2e-session.json`. The authenticated auth spec uses that seeded session.
+- If `SUPABASE_SERVICE_ROLE_KEY` (or the URL/anon key) is missing, it logs a warning and skips seeding. The **authenticated spec skips**; the unauthenticated spec still runs.
+
+This keeps the suite runnable with only the public keys (unauthenticated coverage) while still allowing full authenticated coverage when the service-role key is provided.
 
 Playwright artifacts live in `webapp/e2e/.artifacts/` and are not committed. For interactive debugging:
 
@@ -103,9 +89,10 @@ The default branch intentionally does not contain the runnable Expo app or Maest
 
 For testing questions, consult the current upstream documentation linked here first. This document describes this repository's testing contract; upstream docs are authoritative for runner behavior.
 
-- Playwright intro: https://playwright.dev/docs/intro
-- Playwright `webServer`: https://playwright.dev/docs/test-webserver
-- Playwright `baseURL`, traces, screenshots, and video: https://playwright.dev/docs/test-use-options
-- Playwright CLI and browser install: https://playwright.dev/docs/test-cli and https://playwright.dev/docs/browsers
-- Docker Compose: https://docs.docker.com/compose/
-- PostgreSQL Docker Official Image: https://hub.docker.com/_/postgres
+- [Playwright intro](https://playwright.dev/docs/intro)
+- [Playwright `webServer`](https://playwright.dev/docs/test-webserver)
+- [Playwright `baseURL`, traces, screenshots, video](https://playwright.dev/docs/test-use-options)
+- [Playwright CLI and browser install](https://playwright.dev/docs/test-cli)
+- [Deno testing](https://docs.deno.com/runtime/fundamentals/testing/)
+- [Supabase local development & testing](https://supabase.com/docs/guides/local-development)
+- [Zod docs](https://zod.dev/)

@@ -1,6 +1,6 @@
 # Contracts
 
-The contracts package is the shared source of truth for API payloads, DTOs, and error shapes. Backend, web, and mobile import these schemas instead of redefining request or response shapes locally.
+The contracts package is the shared source of truth for data payloads, DTOs, and error shapes. The webapp and Supabase Edge Functions import these Zod schemas and inferred types instead of redefining request or response shapes locally.
 
 ## Stack
 
@@ -24,13 +24,12 @@ bun run build
 
 ## Practice
 
-Add or change API shapes here before updating backend routes or client forms. Export schemas and inferred TypeScript types from `src/index.ts` so all consumers use the same contract.
+Add or change data shapes here before updating Edge Functions or client forms. Export schemas and inferred TypeScript types from `src/index.ts` so all consumers use the same contract.
 
 When a schema changes, validate both sides in the same pass:
 
-- backend route/service validation and serialization;
-- web API client, form parsing, and UI state;
-- mobile API client, form parsing, and UI state;
+- Supabase Edge Function input validation and serialization;
+- webapp data client, form parsing, and UI state;
 - relevant unit/integration/E2E tests from [../../docs/TESTING.md](../../docs/TESTING.md).
 
 Do not add runtime-only business logic here. Contracts should stay focused on data validation, normalization, and shared TypeScript types.
@@ -43,5 +42,5 @@ For schema, TypeScript, or consumer integration questions, consult the current u
 
 - [Zod docs](https://zod.dev/)
 - [TypeScript docs](https://www.typescriptlang.org/docs/)
-- [Hono docs](https://hono.dev/docs)
 - [TanStack Form React docs](https://tanstack.com/form/latest/docs/framework/react/quick-start)
+- [Supabase Edge Functions docs](https://supabase.com/docs/guides/functions)

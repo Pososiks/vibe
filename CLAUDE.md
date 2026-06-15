@@ -40,11 +40,11 @@
 - When structure is unclear, get a fresh snapshot with `rg --files`, `tree -L 2`, or `tree -L 3`.
 - Do not treat `README.md` as a file inventory. Discover structure dynamically.
 - Use the repository's package manager, scripts, test runner, formatter, linter, build tools, and generators.
-- Use `docs/LOCAL_DATABASE.md` and `docker-compose.yml` as the local PostgreSQL source of truth. Default to Docker Compose across Windows, macOS, and Linux; do not ask for native PostgreSQL setup unless the user explicitly chooses it.
+- Local data and auth run against a Supabase project; use the Supabase CLI or dashboard. Migrations live in `supabase/migrations/`. There is no Docker or local Postgres setup.
 - In Codex shell sessions, do not assume JS tooling is on `PATH`. For `node`, `npm`, and `bun`, prefer `PATH="/opt/homebrew/bin:$HOME/.bun/bin:$PATH"`.
 - Prefer existing utilities, framework APIs, and the standard library before adding dependencies.
 - Do not add new production or tooling dependencies without explicit user approval unless the user directly requested that dependency by name.
-- Before using a new library, inspect the relevant `package.json`. Prefer installed libraries such as Zod, TanStack Query, TanStack Form, Hono, Prisma, Expo, and `@web-app-demo/contracts`.
+- Before using a new library, inspect the relevant `package.json`. Prefer installed libraries such as Zod, TanStack Query, TanStack Form, `@supabase/supabase-js`, Expo (mobile branch), and `@web-app-demo/contracts`.
 - If a missing dependency clearly improves the product outcome, explain the user-visible reason, maintenance/security impact, and ask before installing.
 - Before using framework-specific APIs, check current official docs, local package types, or existing examples.
 - For E2E, use Playwright for web and Maestro for mobile. Read `docs/TESTING.md` before adding flows.
@@ -59,8 +59,8 @@
 - Keep durable project choices in README files and docs, not in this agent file.
 - Infrastructure, deployment, storage, local database, testing runbooks, and provider-specific choices live in `README.md` and `docs/`.
 - When a surface is deferred, prefer a short note in that surface's README over extra agent instructions.
-- Prefer a monolithic backend. Do not split into microservices unless the product has a concrete operational need.
-- For real-time infrastructure decisions, follow `docs/ARCHITECTURE.md` and `docs/DEPLOYMENT.md`.
+- This is a Supabase-native template with no application server. Server-side logic that cannot be trusted to the client lives in Supabase Edge Functions. Do not add a bespoke backend unless a concrete need arises.
+- For real-time infrastructure decisions, follow `docs/ARCHITECTURE.md`. Use Supabase Realtime if real-time is needed.
 
 ## Bootstrap-Only Instructions
 
@@ -68,7 +68,7 @@
 This block exists only for fresh installs from the template. If this repository has not been initialized for a real project yet:
 
 - Read `README.md`, especially `Agent Repo Download Instructions`, before setup or feature work.
-- Follow that README section for product intake, active/deferred surfaces, repository remote handling, Docker/PostgreSQL setup, deployment scope, Expo/EAS owner setup, and mobile Maestro dev-client setup when mobile E2E is active.
+- Follow that README section for product intake, active/deferred surfaces, repository remote handling, Supabase project setup, Vercel deployment scope, and creem.io subscription configuration.
 - Record durable project choices in README files and docs, not in `AGENTS.md` or `CLAUDE.md`.
 - After first-run setup is complete, delete this entire `Bootstrap-Only Instructions` block from both `AGENTS.md` and `CLAUDE.md`.
 <!-- BOOTSTRAP_ONLY_END -->
@@ -164,12 +164,12 @@ This block exists only for fresh installs from the template. If this repository 
 - If validation cannot be run, say why and identify the best available substitute signal.
 - Do not hide validation failures. Report what failed, what it means, and the next useful experiment.
 
-## Prisma Migrations
+## Supabase Migrations
 
-- Do not hand-write Prisma migration SQL in this repository.
-- Express schema changes declaratively in `schema.prisma`, then generate migrations with the repository workflow.
-- Do not author or customize `migration.sql` by hand unless explicitly asked.
-- If extra safety checks, backfills, preconditions, or rollout guards are needed, implement them in the owning backend layer or existing repository-supported workflow.
+- Express schema changes as SQL migrations in `supabase/migrations/`, applied via the Supabase CLI/dashboard or the Supabase MCP `apply_migration`.
+- Enable RLS on new tables and keep owner-scoped policies. Do not weaken RLS.
+- Run the Supabase security advisors after schema changes.
+- If extra safety checks, backfills, preconditions, or rollout guards are needed, implement them in the owning migration or Edge Function layer.
 
 ## Documentation
 
@@ -178,13 +178,13 @@ This block exists only for fresh installs from the template. If this repository 
 - Do not mirror code structure in docs or create doc churn for trivial refactors, formatting, or self-evident details.
 - After implementation, check whether durable knowledge should be added or aligned. If relevant doc drift remains out of scope, call it out.
 
-## Deployment And Storage
+## Deployment
 
-- Deployment and infrastructure policy belongs in `README.md` and `docs/`, especially `docs/DEPLOYMENT.md`, `docs/STORAGE.md`, `docs/LOCAL_DATABASE.md`, and `docs/YANDEX_CLOUD.md`.
-- Concrete DigitalOcean spec defaults belong in `scripts/prepare-do-specs.mjs` and `.do/*.yaml.example`; update README/docs alongside those scripts.
-- Before deployment work, read the relevant docs and use repository scripts/generators rather than provider details from memory.
+- Deployment and infrastructure policy belongs in `README.md` and `docs/ARCHITECTURE.md`.
+- The frontends deploy to Vercel as two separate projects: `webapp` and `website`, with root directories `webapp` and `website`. The webapp build env is `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+- The database, auth, migrations, and Edge Functions are managed in Supabase. Edge Function secrets (creem keys and similar) are set in the Supabase dashboard and never committed.
+- Before deployment work, read the relevant docs and use repository workflows rather than provider details from memory.
 - Before deployment or cloud-resource updates, verify the release source with `git remote -v`, `git status --short --branch`, and the configured deployment branch/commit. If the worktree is dirty, the branch is not pushed/synced, or the release source is ambiguous, stop and report the blocker. Do not run `git reset`, `git checkout --`, `git clean`, `git stash`, or equivalent cleanup to make deployment possible unless the user explicitly requested that exact action.
-- Keep durable storage and media decisions in `docs/STORAGE.md` and provider-specific deployment docs.
 
 ## UI And Design
 

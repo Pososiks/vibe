@@ -1,6 +1,6 @@
 # Webapp
 
-The CSR browser client provides the baseline auth flow for future app features. It lives behind authentication and needs no SEO, so it stays client-side rendered; the public, SEO-facing surfaces live in the `website` workspace instead. It consumes the same API contracts as mobile and should keep server-state, form-state, and auth behavior centralized.
+The CSR browser client provides the baseline auth flow for future app features. It lives behind authentication and needs no SEO, so it stays client-side rendered; the public, SEO-facing surfaces live in the `website` workspace instead. It talks to Supabase directly (Postgres + Auth + RLS) and shares Zod contracts with the rest of the workspace, keeping server-state, form-state, and auth behavior centralized.
 
 ## Project Surface Status
 
@@ -42,20 +42,21 @@ From the repository root, use `bun run dev:webapp`, `bun run build:webapp`, `bun
 Create `webapp/.env` when needed:
 
 ```bash
-VITE_API_URL=http://localhost:3000
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=<your-supabase-anon-key>
 ```
 
-`VITE_API_URL` is build-time config. In production it must be a concrete backend origin such as `https://api.example.com`; if it changes, redeploy the App Platform Static Site so the built bundle stops using the old URL.
+These are build-time config that point the browser bundle at your Supabase project. In production they must be concrete values for the target project; if they change, redeploy so the built bundle stops using the old values. The anon key is safe to ship to the client because access is enforced by Supabase Row Level Security; never put the service role key here.
 
-## Deployment
+## Deploy (Vercel)
 
-Production deployment for the browser app uses DigitalOcean App Platform Static Sites from the full Git monorepo branch with `bun install --frozen-lockfile && bun run build:webapp`, `webapp/dist`, and `index.html` as the SPA catch-all by default. Generate the concrete spec with `bun run deploy:do:specs webapp`; App Platform builds from Git, not from local `dist`. Follow the shared runbook in [../docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md). If the user explicitly chooses Yandex Cloud, deploy the built `webapp/dist` output through Yandex Object Storage static website hosting plus Cloud CDN by following [../docs/YANDEX_CLOUD.md](../docs/YANDEX_CLOUD.md).
+Deploy the browser app as its own Vercel project with Root Directory `webapp` and framework preset Vite. Set the build environment variables `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. The committed `webapp/vercel.json` provides the SPA rewrite so client-side routes resolve to `index.html`.
 
 ## Practice
 
-Use TanStack Query for server state, TanStack Form for forms, and shared Zod schemas from `packages/contracts` for validation. The access token lives only in browser memory; refresh uses the HttpOnly cookie set by the backend.
+Use TanStack Query for server state, TanStack Form for forms, and shared Zod schemas from `packages/contracts` for validation. Sessions are issued and refreshed by Supabase Auth; the Supabase client owns token storage and refresh.
 
-Keep the API client responsible for base URLs, auth headers, refresh/retry, and error parsing. Do not duplicate API shapes or auth state in page components.
+Keep the Supabase client responsible for auth, session handling, and request/error parsing. Do not duplicate data shapes or auth state in page components.
 
 Use shadcn/ui for web interface primitives. Treat `src/components/ui` as the shared UI primitive layer: most files are shadcn registry output, plus project-wide primitives such as `Typography`. Import those primitives through `@/components/ui/*`. Put app-specific wrappers and composed product components in `src/components` so normal lint rules keep applying. Avoid adding new one-off global CSS classes for product UI; compose screens with Tailwind utilities and shadcn theme tokens from `src/index.css`.
 
@@ -74,17 +75,11 @@ Use the local `shadcn` devDependency pinned in `webapp/package.json` and `bun.lo
 
 ## E2E
 
-The Playwright smoke test lives in `e2e/specs/auth.spec.ts` and verifies client-side auth validation visibility, register/login mode switching, register, refresh after reload, protected UI, logout, invalid login error rendering, and a successful login after logout.
-
-The run starts Docker Compose `postgres_test`, applies migrations to `web_app_demo_test`, starts the backend with `TEST_DATABASE_URL` as its `DATABASE_URL`, starts Vite, and removes the test database volume after the run by default.
-
-First run:
+Playwright runs the browser smoke flow against a real Supabase project. The suite covers client-side auth validation visibility, protected UI, and the signed-in path. Seeding the authenticated flow needs `SUPABASE_SERVICE_ROLE_KEY` in the environment; without it that spec is skipped so the rest of the suite still runs.
 
 ```bash
-docker compose version
-docker info
 bun run e2e:install
-bun run e2e
+bun run e2e:webapp
 ```
 
 Detailed runbook: [../docs/TESTING.md](../docs/TESTING.md).

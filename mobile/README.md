@@ -17,4 +17,4 @@ git switch mobile
 
 The `mobile` branch contains the Expo app, development-build setup, Maestro E2E runner, iOS IAP foundation, Expo Push notifications, and mobile social auth integration.
 
-Keep general web, backend, infrastructure, deployment, and shared contract work on `master`. Keep mobile runtime work and mobile-specific backend/contracts changes on `mobile`, then merge `master` into `mobile` regularly.
+Keep general web, Supabase, and shared contract work on `master`. Keep mobile runtime work and mobile-specific contract changes on `mobile`, then merge `master` into `mobile` regularly.

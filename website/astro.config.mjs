@@ -4,9 +4,9 @@ import { defineConfig } from 'astro/config';
 // https://astro.build/config
 //
 // Default rendering is static (SSG): every page prerenders to HTML and the
-// build emits a plain static site in `website/dist`, deployable to a Static
-// Site host or object storage + CDN. This is the right default for landing and
-// content pages, and for the public/SEO surface of a marketplace.
+// build emits a plain static site in `website/dist`, deployable to any static
+// host (e.g. Vercel). This is the right default for landing and content pages,
+// and for the public/SEO surface of a marketplace.
 //
 // SSR upgrade path (do this only when a route needs server rendering, e.g.
 // live search/inventory/personalized pages):
@@ -19,8 +19,7 @@ import { defineConfig } from 'astro/config';
 //      (static assets/HTML) plus `dist/server` (runtime entry), so the static
 //      output dir becomes `website/dist/client`.
 //   3. Opt a single route into SSR with `export const prerender = false`.
-//   4. Deploy this surface as a runtime service (a container), not a Static
-//      Site, since SSR routes need the Node server. See README "SSR upgrade
-//      path". Note: per-page ISR is a Vercel/Netlify feature, not available on
-//      DigitalOcean/Yandex — use CDN cache headers for freshness instead.
+//   4. Deploy so SSR routes run on a server at runtime, not as pure static
+//      files. On Vercel the Astro adapter handles this once registered. See
+//      README "SSR upgrade path".
 export default defineConfig({});
