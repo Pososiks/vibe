@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,16 +10,33 @@ import { isActive, useSubscription } from '@/lib/use-subscription'
 export function SubscriptionCard({ userId }: { userId: string }) {
   const subscription = useSubscription(userId)
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function startBilling(action: 'checkout' | 'portal') {
     setBusy(true)
-    const { data, error } = await supabase.functions.invoke('creem-checkout', {
+    setError(null)
+    const { data, error: invokeError } = await supabase.functions.invoke('creem-checkout', {
       body: { action, origin: window.location.origin },
     })
-    if (!error && data?.url) {
+
+    if (data?.url) {
       window.location.href = data.url as string
       return
     }
+
+    // Surface the function's error body instead of failing silently.
+    let message = 'Could not start checkout. Please try again.'
+    const context = (invokeError as { context?: Response } | null)?.context
+    if (context) {
+      try {
+        const body = await context.json()
+        if (body?.error) message = String(body.error)
+      } catch {
+        /* keep the default message */
+      }
+    }
+    console.error('creem-checkout failed', invokeError, data)
+    setError(message)
     setBusy(false)
   }
 
@@ -39,22 +57,34 @@ export function SubscriptionCard({ userId }: { userId: string }) {
           </CardDescription>
         )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="grid gap-3">
+        {error && (
+          <Alert variant="destructive">
+            <AlertTitle>Checkout failed</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         {active ? (
           <Button
             type="button"
             variant="outline"
+            className="w-fit"
             disabled={busy}
             onClick={() => void startBilling('portal')}
           >
             {busy ? 'Opening…' : 'Manage subscription'}
           </Button>
         ) : (
-          <Button type="button" disabled={busy} onClick={() => void startBilling('checkout')}>
+          <Button
+            type="button"
+            className="w-fit"
+            disabled={busy}
+            onClick={() => void startBilling('checkout')}
+          >
             {busy ? 'Redirecting…' : 'Subscribe'}
           </Button>
         )}
-        <Typography variant="bodySm" tone="muted" className="mt-3">
+        <Typography variant="bodySm" tone="muted">
           Status updates automatically after checkout via the creem webhook.
         </Typography>
       </CardContent>
