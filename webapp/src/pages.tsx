@@ -1,8 +1,8 @@
 import { Link, Outlet } from '@tanstack/react-router'
 
-import { AuthForm } from '@/components/AuthForm'
+import { GoogleSignInCard } from '@/components/GoogleSignInCard'
 import { Badge } from '@/components/ui/badge'
-import { Button, buttonVariants } from '@/components/ui/button'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -13,13 +13,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { Spinner } from '@/components/ui/spinner'
 import { Typography } from '@/components/ui/typography'
-import { cn } from '@/lib/utils'
 import { useAuth } from '@/lib/use-auth'
-
-const navLinkClass = cn(
-  buttonVariants({ variant: 'ghost', size: 'sm' }),
-  'text-muted-foreground data-[status=active]:bg-secondary data-[status=active]:text-secondary-foreground data-[status=active]:hover:bg-secondary/80 data-[status=active]:hover:text-secondary-foreground'
-)
 
 export function RootLayout() {
   const auth = useAuth()
@@ -31,20 +25,14 @@ export function RootLayout() {
           <Typography asChild variant="h6">
             <Link to="/">web_app_demo</Link>
           </Typography>
-          <nav className="ml-auto flex items-center gap-2" aria-label="Primary">
-            <Typography asChild variant="control" tone="muted">
-              <Link to="/" className={navLinkClass}>
-                Auth
-              </Link>
-            </Typography>
-            <Typography asChild variant="control" tone="muted">
-              <Link to="/app" className={navLinkClass}>
-                App
-              </Link>
-            </Typography>
-          </nav>
           {auth.isAuthenticated && (
-            <Button type="button" variant="outline" size="sm" onClick={() => void auth.logout()}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="ml-auto"
+              onClick={() => void auth.signOut()}
+            >
               Logout
             </Button>
           )}
@@ -62,71 +50,22 @@ export function HomePage() {
     return <LoadingState />
   }
 
-  if (auth.user) {
-    return (
-      <section className="mx-auto grid w-full max-w-6xl gap-6 px-5 py-16">
-        <Badge variant="outline" className="w-fit">
-          Authenticated starter
-        </Badge>
-        <div className="grid max-w-3xl gap-4">
-          <Typography variant="h1">Session is active</Typography>
-          <Typography className="max-w-2xl" tone="muted">
-            Logged in as{' '}
-            <Typography as="strong" variant="emphasis" tone="default">
-              {auth.user.email}
-            </Typography>
-            .
-            This is the baseline auth pattern for future web features.
-          </Typography>
-        </div>
-        <Button asChild size="lg" className="w-fit">
-          <Link to="/app">Open app</Link>
-        </Button>
-      </section>
-    )
-  }
-
-  return (
-    <section className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-12 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-center">
-      <div className="grid gap-5">
-        <Badge variant="outline" className="w-fit">
-          Golden path template
-        </Badge>
-        <Typography className="max-w-3xl" variant="h1">
-          Auth, validation, API state, and forms are wired from day one.
-        </Typography>
-        <Typography className="max-w-2xl" tone="muted">
-          The web app uses shared Zod contracts, TanStack Query for server state, TanStack Form for
-          input state, and an API client that refreshes sessions through the backend.
-        </Typography>
-      </div>
-      <AuthForm />
-    </section>
-  )
-}
-
-export function AppPage() {
-  const auth = useAuth()
-
-  if (auth.isBootstrapping) {
-    return <LoadingState />
-  }
-
   if (!auth.user) {
     return (
-      <section className="mx-auto grid w-full max-w-6xl gap-6 px-5 py-16">
-        <Badge variant="outline" className="w-fit">
-          Protected example
-        </Badge>
-        <div className="grid max-w-3xl gap-4">
-          <Typography variant="h1">Login required</Typography>
+      <section className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-12 lg:grid-cols-[minmax(0,1fr)_420px] lg:items-center">
+        <div className="grid gap-5">
+          <Badge variant="outline" className="w-fit">
+            Golden path template
+          </Badge>
+          <Typography className="max-w-3xl" variant="h1">
+            Sign in to open your account.
+          </Typography>
           <Typography className="max-w-2xl" tone="muted">
-            This route intentionally stays small and shows where protected product UI begins.
+            The web app uses Supabase Auth for Google sign-in, shared Zod contracts, and TanStack
+            Query for server state. Sessions are managed by the Supabase client.
           </Typography>
         </div>
-        <Button asChild size="lg" className="w-fit">
-          <Link to="/">Go to auth</Link>
-        </Button>
+        <GoogleSignInCard />
       </section>
     )
   }
@@ -135,11 +74,9 @@ export function AppPage() {
     <section className="mx-auto grid w-full max-w-6xl gap-6 px-5 py-12">
       <div className="grid gap-3">
         <Badge variant="outline" className="w-fit">
-          Current user
+          Signed in
         </Badge>
-        <Typography variant="h1">
-          {auth.user.displayName ?? auth.user.email}
-        </Typography>
+        <Typography variant="h1">{auth.user.displayName ?? auth.user.email}</Typography>
         <Typography tone="muted">{auth.user.email}</Typography>
       </div>
 

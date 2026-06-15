@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { LoginRequest, RegisterRequest } from '@web-app-demo/contracts'
+import type { Profile } from '@web-app-demo/contracts'
+import type { Session } from '@supabase/supabase-js'
 import {
   type PropsWithChildren,
   useCallback,
@@ -8,102 +9,84 @@ import {
   useState,
 } from 'react'
 
-import { ApiClient } from './api'
+import { supabase } from './supabase'
 import { AuthContext, type AuthContextValue } from './auth-context'
-import { bootstrapAuthSession } from './bootstrap-auth'
 
-const meQueryKey = ['auth', 'me'] as const
+const profileQueryKey = ['auth', 'profile'] as const
+
+async function fetchProfile(userId: string): Promise<Profile | null> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, email, display_name, created_at')
+    .eq('id', userId)
+    .maybeSingle()
+
+  if (error) throw error
+  if (!data) return null
+
+  return {
+    id: data.id,
+    email: data.email,
+    displayName: data.display_name,
+    createdAt: data.created_at,
+  }
+}
 
 export function AuthProvider({ children }: PropsWithChildren) {
   const queryClient = useQueryClient()
-  const [accessToken, setAccessTokenState] = useState<string | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
-
-  const setAccessToken = useCallback(
-    (nextAccessToken: string | null) => setAccessTokenState(nextAccessToken),
-    [],
-  )
-  const handleAuthExpired = useCallback(() => {
-    setAccessToken(null)
-    queryClient.removeQueries({ queryKey: meQueryKey })
-  }, [queryClient, setAccessToken])
-
-  const api = useMemo(
-    () =>
-      new ApiClient({
-        getAccessToken: () => accessToken,
-        setAccessToken,
-        onAuthExpired: handleAuthExpired,
-      }),
-    [accessToken, handleAuthExpired, setAccessToken],
-  )
 
   useEffect(() => {
     let isMounted = true
-    const bootstrapApi = new ApiClient({
-      getAccessToken: () => null,
-      setAccessToken,
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!isMounted) return
+      setSession(data.session)
+      setIsBootstrapping(false)
     })
 
-    bootstrapAuthSession({
-      api: bootstrapApi,
-      shouldApply: () => isMounted,
-      setAccessToken,
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession)
+      if (!nextSession) {
+        queryClient.removeQueries({ queryKey: profileQueryKey })
+      }
     })
-      .then(() => {
-        return undefined
-      })
-      .finally(() => {
-        if (isMounted) {
-          setIsBootstrapping(false)
-        }
-      })
 
     return () => {
       isMounted = false
+      subscription.subscription.unsubscribe()
     }
-  }, [setAccessToken])
+  }, [queryClient])
 
-  const meQuery = useQuery({
-    queryKey: meQueryKey,
-    enabled: !isBootstrapping && Boolean(accessToken),
-    queryFn: () => api.me(),
+  const profileQuery = useQuery({
+    queryKey: profileQueryKey,
+    enabled: Boolean(session?.user.id),
+    queryFn: () => fetchProfile(session!.user.id),
   })
 
-  const register = useCallback(
-    async (input: RegisterRequest) => {
-      const response = await api.register(input)
-      setAccessToken(response.accessToken)
-      queryClient.setQueryData(meQueryKey, { user: response.user })
-    },
-    [api, queryClient, setAccessToken],
-  )
+  const signInWithGoogle = useCallback(async () => {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: window.location.origin },
+    })
+    if (error) throw error
+  }, [])
 
-  const login = useCallback(
-    async (input: LoginRequest) => {
-      const response = await api.login(input)
-      setAccessToken(response.accessToken)
-      queryClient.setQueryData(meQueryKey, { user: response.user })
-    },
-    [api, queryClient, setAccessToken],
-  )
-
-  const logout = useCallback(async () => {
-    await api.logout().catch(() => undefined)
-    setAccessToken(null)
-    queryClient.removeQueries({ queryKey: meQueryKey })
-  }, [api, queryClient, setAccessToken])
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut().catch(() => undefined)
+    queryClient.removeQueries({ queryKey: profileQueryKey })
+  }, [queryClient])
 
   const value = useMemo<AuthContextValue>(
     () => ({
-      user: meQuery.data?.user ?? null,
+      user: profileQuery.data ?? null,
       isBootstrapping,
-      isAuthenticated: Boolean(meQuery.data?.user),
-      register,
-      login,
-      logout,
+      isAuthenticated: Boolean(profileQuery.data),
+      signInWithGoogle,
+      signOut,
     }),
-    [isBootstrapping, login, logout, meQuery.data?.user, register],
+    [isBootstrapping, profileQuery.data, signInWithGoogle, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
