@@ -1,26 +1,42 @@
 ---
-
+// Public landing (SSG). Customize copy/branding for your product.
+// The CTA points at the webapp; set PUBLIC_WEBAPP_URL at build time on Vercel
+// (Project Settings → Environment Variables). Falls back to local dev.
+const webappUrl = import.meta.env.PUBLIC_WEBAPP_URL ?? 'http://localhost:5173'
+const title = 'Vibe — your SaaS starter'
+const description =
+  'A full-stack starter: Google sign-in, subscriptions, and a typed data layer on Supabase + Vercel. Clone it and ship.'
 ---
 
-<html lang="ru">
+<html lang="en">
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="generator" content={Astro.generator} />
-		<title>website</title>
+		<title>{title}</title>
+		<meta name="description" content={description} />
+		<meta property="og:title" content={title} />
+		<meta property="og:description" content={description} />
+		<meta property="og:type" content="website" />
+		<meta name="twitter:card" content="summary_large_image" />
 	</head>
 	<body>
 		<main>
 			<section class="hero" aria-labelledby="page-title">
-				<p class="eyebrow">Astro workspace</p>
-				<h1 id="page-title">website</h1>
-				<p class="summary">
-					Публичная SSG/SSR-поверхность проекта на Astro: лендинги, контентные
-					сайты и маркетплейс. Страницы статические по умолчанию, динамические
-					роуты переводятся в SSR через prerender = false.
-				</p>
+				<p class="eyebrow">SaaS starter template</p>
+				<h1 id="page-title">Ship your product, not your boilerplate.</h1>
+				<p class="summary">{description}</p>
+				<div class="actions">
+					<a class="button" href={webappUrl}>Get started</a>
+					<a class="link" href={webappUrl}>Sign in &rarr;</a>
+				</div>
+				<ul class="features" aria-label="What's included">
+					<li><strong>Google sign-in</strong><span>Supabase Auth, no passwords to manage.</span></li>
+					<li><strong>Subscriptions</strong><span>creem.io checkout + webhook, synced to your DB.</span></li>
+					<li><strong>Supabase + Vercel</strong><span>Postgres, RLS, and edge functions, deployed in minutes.</span></li>
+				</ul>
 			</section>
 		</main>
 	</body>
@@ -50,7 +66,7 @@
 	}
 
 	.hero {
-		max-width: 720px;
+		max-width: 760px;
 	}
 
 	.eyebrow {
@@ -64,9 +80,9 @@
 
 	h1 {
 		margin: 0;
-		font-size: 4rem;
-		line-height: 0.92;
-		letter-spacing: 0;
+		font-size: 3rem;
+		line-height: 1.02;
+		letter-spacing: -0.02em;
 	}
 
 	.summary {
@@ -77,27 +93,81 @@
 		color: #3e4a42;
 	}
 
+	.actions {
+		margin: 2rem 0 0;
+		display: flex;
+		align-items: center;
+		gap: 1.25rem;
+		flex-wrap: wrap;
+	}
+
+	.button {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.75rem 1.5rem;
+		border-radius: 0.625rem;
+		background: #14221f;
+		color: #f6f8fb;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.button:hover {
+		background: #24332e;
+	}
+
+	.link {
+		color: #4c6f5b;
+		font-weight: 600;
+		text-decoration: none;
+	}
+
+	.link:hover {
+		text-decoration: underline;
+	}
+
+	.features {
+		margin: 3rem 0 0;
+		padding: 0;
+		list-style: none;
+		display: grid;
+		gap: 1.25rem;
+	}
+
+	.features li {
+		display: grid;
+		gap: 0.25rem;
+	}
+
+	.features strong {
+		font-size: 1rem;
+	}
+
+	.features span {
+		color: #3e4a42;
+	}
+
 	@media (min-width: 720px) {
 		main {
 			padding: 5rem;
 		}
 
 		h1 {
-			font-size: 7rem;
+			font-size: 4.5rem;
 		}
 
 		.summary {
 			font-size: 1.25rem;
+		}
+
+		.features {
+			grid-template-columns: repeat(3, 1fr);
 		}
 	}
 
 	@media (min-width: 1120px) {
 		main {
 			padding: 6rem;
-		}
-
-		h1 {
-			font-size: 9rem;
 		}
 	}
 </style>
