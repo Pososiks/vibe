@@ -10,6 +10,8 @@ Authentication is **Google sign-in only** (via Supabase Auth). Payments are **cr
 
 This is a **template**. Every install-specific value (Supabase project ref/URL/keys, creem product id and keys, domains) is a placeholder you fill in for your own project — nothing here is hardcoded to a real project.
 
+> **Setting up your own copy?** Follow **[docs/SETUP.md](docs/SETUP.md)** — step-by-step setup for Supabase (database + Google sign-in), creem.io (subscriptions), local dev, and Vercel deployment. The sections below explain how each piece works.
+
 ## What's Inside
 
 - `webapp` — React 19 + Vite client-side (CSR) browser app. Lives behind login (Google sign-in + an active subscription). Uses TanStack Router for client routing and TanStack Query for server state. Talks to Supabase directly with the anon/publishable key.
@@ -153,7 +155,7 @@ Run from the repository root:
 - [packages/contracts/README.md](packages/contracts/README.md) — shared schema and type rules.
 - [mobile/README.md](mobile/README.md) — pointer to the full mobile template branch.
 
-Engineering guidance lives in [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/TESTING.md](docs/TESTING.md).
+First-run setup lives in [docs/SETUP.md](docs/SETUP.md). Engineering guidance lives in [AGENTS.md](AGENTS.md), [CLAUDE.md](CLAUDE.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [docs/TESTING.md](docs/TESTING.md).
 
 ## Current Upstream Documentation
 
