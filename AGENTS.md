@@ -181,7 +181,8 @@ This block exists only for fresh installs from the template. If this repository 
 ## Deployment
 
 - Deployment and infrastructure policy belongs in `README.md` and `docs/ARCHITECTURE.md`.
-- The frontends deploy to Vercel as two separate projects: `webapp` and `website`, with root directories `webapp` and `website`. The webapp build env is `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+- The frontends deploy to Vercel as two separate projects: `webapp` and `website`, with root directories `webapp` and `website`. The webapp build env is `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`; the website build env is `PUBLIC_WEBAPP_URL` (the webapp's production URL its CTAs link to).
+- Vercel's Deployment Protection (Vercel Authentication) is on by default and gates the site behind a login wall (`401`); disable it per project for public access. Wire `PUBLIC_WEBAPP_URL`, Supabase redirect URLs, and Google OAuth origins to each project's stable production domain, never a per-deploy preview URL.
 - The database, auth, migrations, and Edge Functions are managed in Supabase. Edge Function secrets (creem keys and similar) are set in the Supabase dashboard and never committed.
 - Before deployment work, read the relevant docs and use repository workflows rather than provider details from memory.
 - Before deployment or cloud-resource updates, verify the release source with `git remote -v`, `git status --short --branch`, and the configured deployment branch/commit. If the worktree is dirty, the branch is not pushed/synced, or the release source is ambiguous, stop and report the blocker. Do not run `git reset`, `git checkout --`, `git clean`, `git stash`, or equivalent cleanup to make deployment possible unless the user explicitly requested that exact action.

@@ -110,10 +110,17 @@ Deploy `webapp` and `website` as **two separate Vercel projects** from the same 
 | webapp | `webapp` | SPA. `webapp/vercel.json` rewrites all routes to `/index.html`. |
 | website | `website` | Astro build output. |
 
-For the **webapp** project, set these Build & Deployment environment variables (same values as local `webapp/.env`):
+Environment variables per project:
 
-- `VITE_SUPABASE_URL` — `https://<your-project-ref>.supabase.co`
-- `VITE_SUPABASE_ANON_KEY` — your anon/publishable key
+- **webapp** (same values as local `webapp/.env`):
+  - `VITE_SUPABASE_URL` — `https://<your-project-ref>.supabase.co`
+  - `VITE_SUPABASE_ANON_KEY` — your anon/publishable key
+- **website**:
+  - `PUBLIC_WEBAPP_URL` — the webapp's production URL, so the landing's "Get started" / "Sign in" links point at the app. Use the webapp project's **stable production domain** (e.g. `https://<your-webapp>.vercel.app`), not a per-deploy preview URL. Redeploy `website` after setting it (it is read at build time).
+
+**Make the deployments public.** New Vercel projects often enable **Deployment Protection (Vercel Authentication)**, which puts a Vercel login wall in front of the site (visitors get `401`/a login screen). For a public app and landing, turn it off: each project → Settings → Deployment Protection → disable Vercel Authentication (or scope it to preview deployments only).
+
+When wiring URLs (PUBLIC_WEBAPP_URL, Supabase redirect list, Google origins), always use each project's **stable production domain**, not the hashed per-deploy URLs, which change on every deploy.
 
 Per-install backend setup that must exist before the deployed app works:
 
